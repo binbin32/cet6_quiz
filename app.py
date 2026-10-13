@@ -1,12 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 六级背单词 · 网页版（Streamlit）
-
-在电脑上运行：
-    pip install streamlit
-    streamlit run app.py
-
-手机访问：和电脑连同一个 WiFi，用运行后命令行里显示的 "Network URL" 打开。
+本地：streamlit run app.py（进度存 progress.json）
+云端：进度存 Supabase 数据库（需要配置 secrets）
 """
 import random
 import json
@@ -15,15 +11,12 @@ from datetime import date, timedelta
 
 import streamlit as st
 
-# ============ 词库路径（按需改成完整路径）============
 WORD_FILE = "cet6_words.txt"
-# ==================================================
-
 PROGRESS_FILE = os.path.join(
     os.path.dirname(os.path.abspath(WORD_FILE)), "progress.json"
 )
 
-INTERVALS = [0, 1, 2, 4, 7, 15, 30]   # 记忆间隔（天）：等级 0~6
+INTERVALS = [0, 1, 2, 4, 7, 15, 30]
 
 
 def load_words(path):
@@ -39,16 +32,44 @@ def load_words(path):
     return words
 
 
-def load_progress(path):
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
+# ---- 进度存储：云端用 Supabase，本地用 progress.json ----
+def get_supabase():
+    try:
+        from supabase import create_client
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+        return create_client(url, key)
+    except Exception:
+        return None
+
+
+SUPABASE = get_supabase()
+
+
+def load_progress():
+    if SUPABASE is not None:
+        try:
+            res = SUPABASE.table("progress").select("data").eq("id", 1).execute()
+            if res.data:
+                return res.data[0].get("data") or {}
+        except Exception:
+            return {}
+        return {}
+    if os.path.exists(PROGRESS_FILE):
+        with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
 
-def save_progress(path, progress):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(progress, f, ensure_ascii=False, indent=2)
+def save_progress(progress):
+    if SUPABASE is not None:
+        try:
+            SUPABASE.table("progress").upsert({"id": 1, "data": progress}).execute()
+        except Exception:
+            pass
+    else:
+        with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
+            json.dump(progress, f, ensure_ascii=False, indent=2)
 
 
 def today():
@@ -98,10 +119,9 @@ st.set_page_config(page_title="六级背单词", page_icon="📖")
 st.title("六级背单词")
 st.caption("看英文单词，选正确的中文释义")
 
-# ---- 第一次运行时初始化状态 ----
 if "inited" not in st.session_state:
     st.session_state.words = load_words(WORD_FILE)
-    st.session_state.progress = load_progress(PROGRESS_FILE)
+    st.session_state.progress = load_progress()
     st.session_state.all_meanings = [m for _, m in st.session_state.words]
     new, due = due_words(st.session_state.words, st.session_state.progress)
     pool = new + due
@@ -151,7 +171,7 @@ elif idx < len(pool):
             else:
                 st.session_state.wrong.append((word, meaning))
             st.session_state[answered_key] = correct
-            save_progress(PROGRESS_FILE, st.session_state.progress)  # 每答一题就保存
+            save_progress(st.session_state.progress)
             st.rerun()
 
     if st.session_state.get(answered_key) is not None:
@@ -163,7 +183,7 @@ elif idx < len(pool):
             st.session_state.idx += 1
             st.rerun()
 else:
-    save_progress(PROGRESS_FILE, st.session_state.progress)
+    save_progress(st.session_state.progress)
     st.subheader("本次学习结束！")
     total = len(pool)
     st.write(
