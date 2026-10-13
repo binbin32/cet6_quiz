@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-六级背单词 · 网页版（Streamlit）
-本地：streamlit run app.py（进度存 progress.json）
-云端：进度存 Supabase 数据库（需要配置 secrets）
-"""
 import random
 import json
 import os
@@ -15,7 +10,6 @@ WORD_FILE = "cet6_words.txt"
 PROGRESS_FILE = os.path.join(
     os.path.dirname(os.path.abspath(WORD_FILE)), "progress.json"
 )
-
 INTERVALS = [0, 1, 2, 4, 7, 15, 30]
 
 
@@ -35,14 +29,14 @@ def load_words(path):
 def get_supabase():
     try:
         from supabase import create_client
+    except Exception as e:
+        return None, f"supabase 库没装上：{e}"
+    try:
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_KEY"]
-        return create_client(url, key)
-    except Exception:
-        return None
-
-
-SUPABASE = get_supabase()
+    except Exception as e:
+        return None, f"secrets 没配好：{e}"
+    return create_client(url, key), ""
 
 
 def load_progress():
@@ -64,8 +58,9 @@ def save_progress(progress):
     if SUPABASE is not None:
         try:
             SUPABASE.table("progress").upsert({"id": 1, "data": progress}).execute()
-        except Exception:
-            pass
+            st.session_state.save_error = None
+        except Exception as e:
+            st.session_state.save_error = str(e)
     else:
         with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
             json.dump(progress, f, ensure_ascii=False, indent=2)
@@ -114,9 +109,15 @@ def record(progress, word, correct):
     progress[word] = rec
 
 
-st.set_page_config(page_title="📔", page_icon="📖")
-st.title("📔")
-st.caption("选择")
+st.set_page_config(page_title="六级背单词", page_icon="📖")
+st.title("六级背单词")
+
+# ---- 诊断：连接数据库 ----
+SUPABASE, supabase_error = get_supabase()
+if SUPABASE is None:
+    st.error("❌ 数据库未连接：" + supabase_error + "　→ 现在是临时本地存储，刷新会丢进度")
+else:
+    st.success("✅ 已连接 Supabase 数据库，进度会永久保存")
 
 if "inited" not in st.session_state:
     st.session_state.words = load_words(WORD_FILE)
@@ -130,7 +131,13 @@ if "inited" not in st.session_state:
     st.session_state.idx = 0
     st.session_state.score = 0
     st.session_state.wrong = []
+    st.session_state.save_error = None
     st.session_state.inited = True
+
+st.caption(f"📦 数据库里已记录的词数：{len(st.session_state.progress)}")
+
+if st.session_state.get("save_error"):
+    st.error("❌ 上次保存到数据库失败：" + st.session_state["save_error"])
 
 # ---- 错词本 ----
 wrong_words = [
@@ -143,9 +150,7 @@ with st.expander(f"📕 我的错词本（{len(wrong_words)} 个词）"):
     else:
         for w, r in wrong_words:
             meaning = st.session_state.word_meaning.get(w, "")
-            st.write(
-                f"**{w}** → {meaning}　（答错 {r['wrong']} 次，当前等级 {r['level']}）"
-            )
+            st.write(f"**{w}** → {meaning}　（答错 {r['wrong']} 次，当前等级 {r['level']}）")
 
 pool = st.session_state.pool
 idx = st.session_state.idx
@@ -163,7 +168,6 @@ if not pool:
         st.rerun()
 elif idx < len(pool):
     word, meaning = pool[idx]
-
     qkey = f"options_{idx}"
     if qkey not in st.session_state:
         options, answer_idx = make_question(st.session_state.all_meanings, meaning)
@@ -172,7 +176,6 @@ elif idx < len(pool):
 
     st.subheader(word)
     choice = st.radio("它的中文意思是？", options, key=f"radio_{idx}")
-
     answered_key = f"answered_{idx}"
 
     if st.button("提交答案"):
