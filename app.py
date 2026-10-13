@@ -32,7 +32,6 @@ def load_words(path):
     return words
 
 
-# ---- 进度存储：云端用 Supabase，本地用 progress.json ----
 def get_supabase():
     try:
         from supabase import create_client
@@ -115,12 +114,13 @@ def record(progress, word, correct):
     progress[word] = rec
 
 
-st.set_page_config(page_title="六级背单词", page_icon="📖")
-st.title("六级背单词")
-st.caption("看英文单词，选正确的中文释义")
+st.set_page_config(page_title="📔", page_icon="📖")
+st.title("📔")
+st.caption("选择")
 
 if "inited" not in st.session_state:
     st.session_state.words = load_words(WORD_FILE)
+    st.session_state.word_meaning = dict(st.session_state.words)
     st.session_state.progress = load_progress()
     st.session_state.all_meanings = [m for _, m in st.session_state.words]
     new, due = due_words(st.session_state.words, st.session_state.progress)
@@ -131,6 +131,21 @@ if "inited" not in st.session_state:
     st.session_state.score = 0
     st.session_state.wrong = []
     st.session_state.inited = True
+
+# ---- 错词本 ----
+wrong_words = [
+    (w, r) for w, r in st.session_state.progress.items() if r.get("wrong", 0) > 0
+]
+wrong_words.sort(key=lambda x: x[1]["wrong"], reverse=True)
+with st.expander(f"📕 我的错词本（{len(wrong_words)} 个词）"):
+    if not wrong_words:
+        st.write("还没有答错的词，继续保持！")
+    else:
+        for w, r in wrong_words:
+            meaning = st.session_state.word_meaning.get(w, "")
+            st.write(
+                f"**{w}** → {meaning}　（答错 {r['wrong']} 次，当前等级 {r['level']}）"
+            )
 
 pool = st.session_state.pool
 idx = st.session_state.idx
