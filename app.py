@@ -29,14 +29,11 @@ def load_words(path):
 def get_supabase():
     try:
         from supabase import create_client
-    except Exception as e:
-        return None, f"supabase 库没装上：{e}"
-    try:
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_KEY"]
-    except Exception as e:
-        return None, f"secrets 没配好：{e}"
-    return create_client(url, key), ""
+        return create_client(url, key)
+    except Exception:
+        return None
 
 
 def load_progress():
@@ -58,9 +55,8 @@ def save_progress(progress):
     if SUPABASE is not None:
         try:
             SUPABASE.table("progress").upsert({"id": 1, "data": progress}).execute()
-            st.session_state.save_error = None
-        except Exception as e:
-            st.session_state.save_error = str(e)
+        except Exception:
+            pass
     else:
         with open(PROGRESS_FILE, "w", encoding="utf-8") as f:
             json.dump(progress, f, ensure_ascii=False, indent=2)
@@ -110,14 +106,10 @@ def record(progress, word, correct):
 
 
 st.set_page_config(page_title="六级背单词", page_icon="📖")
-st.title("六级背单词")
+st.title("📔")
+st.caption("选")
 
-# ---- 诊断：连接数据库 ----
-SUPABASE, supabase_error = get_supabase()
-if SUPABASE is None:
-    st.error("❌ 数据库未连接：" + supabase_error + "　→ 现在是临时本地存储，刷新会丢进度")
-else:
-    st.success("✅ 已连接 Supabase 数据库，进度会永久保存")
+SUPABASE = get_supabase()
 
 if "inited" not in st.session_state:
     st.session_state.words = load_words(WORD_FILE)
@@ -131,20 +123,13 @@ if "inited" not in st.session_state:
     st.session_state.idx = 0
     st.session_state.score = 0
     st.session_state.wrong = []
-    st.session_state.save_error = None
     st.session_state.inited = True
 
-st.caption(f"📦 数据库里已记录的词数：{len(st.session_state.progress)}")
-
-if st.session_state.get("save_error"):
-    st.error("❌ 上次保存到数据库失败：" + st.session_state["save_error"])
-
-# ---- 错词本 ----
 wrong_words = [
     (w, r) for w, r in st.session_state.progress.items() if r.get("wrong", 0) > 0
 ]
 wrong_words.sort(key=lambda x: x[1]["wrong"], reverse=True)
-with st.expander(f"📕 我的错词本（{len(wrong_words)} 个词）"):
+with st.expander(f"📕 错词本（{len(wrong_words)} 个词）"):
     if not wrong_words:
         st.write("还没有答错的词，继续保持！")
     else:
@@ -157,7 +142,7 @@ idx = st.session_state.idx
 
 mastered = sum(1 for r in st.session_state.progress.values() if r["level"] >= 6)
 st.write(
-    f"📈 已进入长期记忆：{mastered} 词　|　本次答对：{st.session_state.score}"
+    f"📈 长期记忆：{mastered} 词　|　本次答对：{st.session_state.score}"
     f"　|　第 {min(idx + 1, len(pool))} / {len(pool)} 题"
 )
 
@@ -175,7 +160,7 @@ elif idx < len(pool):
     options, answer_idx = st.session_state[qkey]
 
     st.subheader(word)
-    choice = st.radio("它的中文意思是？", options, key=f"radio_{idx}")
+    choice = st.radio("？", options, key=f"radio_{idx}")
     answered_key = f"answered_{idx}"
 
     if st.button("提交答案"):
